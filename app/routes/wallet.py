@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 
 from .. import models, schemas
 from ..database import get_db
@@ -13,10 +13,10 @@ router = APIRouter(
 )
 
 # --- Endpoint 1: Get Wallet Balance ---
-@router.get("/balance", response_model=schemas.WalletResponse)
+@router.get("/balance", response_model=schemas.WalletBalanceResponse)
 async def get_wallet_balance(
     # Require "read" permission and "user" role if using API Key
-    current_user: models.User = Depends(UnifiedAuth(required_permission="read", required_role="user")),
+    current_user: models.User = Depends(UnifiedAuth(required_permission="read")),
     db: Session = Depends(get_db)
 ):
     """
@@ -28,14 +28,14 @@ async def get_wallet_balance(
     if not wallet:
         raise HTTPException(status_code=404, detail="Wallet not found")
         
-    return wallet
+    return {"balance": wallet.balance}
 
 
 # --- Endpoint 2: Get Transaction History ---
 @router.get("/transactions", response_model=List[schemas.TransactionResponse])
 async def get_transactions(
     # Require "read" permission and "user" role
-    current_user: models.User = Depends(UnifiedAuth(required_permission="read", required_role="user")),
+    current_user: models.User = Depends(UnifiedAuth(required_permission="read")),
     db: Session = Depends(get_db)
 ):
     """
@@ -53,7 +53,12 @@ async def get_transactions(
     # For now, we follow the basic relationship defined in your models.
     
     transactions = db.query(models.Transaction)\
-        .filter(models.Transaction.wallet_id == wallet.id)\
+        .filter(
+            or_(
+                models.Transaction.wallet_id == wallet.id,
+                models.Transaction.recipient_wallet_id == wallet.id
+            )
+        )\
         .order_by(desc(models.Transaction.created_at))\
         .limit(50)\
         .all()

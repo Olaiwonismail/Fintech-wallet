@@ -30,6 +30,8 @@ class WalletResponse(WalletBase):
     
     model_config = ConfigDict(from_attributes=True)
 
+class WalletBalanceResponse(BaseModel):
+    balance: Decimal = Field(decimal_places=2)
 
 # --- Transaction Schemas ---
 
@@ -51,11 +53,19 @@ class TransactionResponse(TransactionBase):
     
     model_config = ConfigDict(from_attributes=True)
 
+class TransferSuccessResponse(BaseModel):
+    status: str
+    message: str
+
+class DepositResponse(BaseModel):
+    reference: str
+    authorization_url: str
+
 
 # --- API Key Schemas ---
 
 class ApiKeyBase(BaseModel):
-    permissions: List[str] = []
+    permissions: List[str] = Field(default_factory=list)
     expires_at: Optional[datetime] = None
     is_active: bool = True
 
@@ -89,6 +99,6 @@ class UserResponse(UserBase):
     id: int
     google_id: Optional[str] = None
     created_at: datetime
-    wallets: List[WalletResponse] = [] # Nested response
+    wallets: List[WalletResponse] = Field(default_factory=list) # Nested response
     
     model_config = ConfigDict(from_attributes=True)

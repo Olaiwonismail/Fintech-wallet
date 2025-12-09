@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .. import models, schemas
 from ..database import get_db
@@ -20,8 +20,9 @@ router = APIRouter(
     tags=["Transactions"]
 )
 class TransferRequest(BaseModel):
-    recipient_wallet_number: str
+    wallet_number: str = Field(alias="recipient_wallet_number")
     amount: Decimal = Field(gt=0, decimal_places=2)
+    model_config = ConfigDict(populate_by_name=True)
 
 # --- Configuration ---
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
@@ -31,17 +32,11 @@ PAYSTACK_INIT_URL = "https://api.paystack.co/transaction/initialize"
 class DepositRequest(BaseModel):
     amount: Decimal # User sends 5000.00 (Naira)
 
-class PaystackResponse(BaseModel):
-    authorization_url: str
-    access_code: str
-    reference: str
-
-
 # --- Endpoint 1: Initialize Deposit ---
-@router.post("/deposit", response_model=PaystackResponse)
+@router.post("/deposit", response_model=schemas.DepositResponse)
 async def initialize_deposit(
     req: DepositRequest,
-    current_user: models.User = Depends(UnifiedAuth(required_permission="write", required_role="user")),
+    current_user: models.User = Depends(UnifiedAuth(required_permission="deposit")),
     db: Session = Depends(get_db)
 ):
     """
@@ -103,7 +98,6 @@ async def initialize_deposit(
 
     return {
         "authorization_url": paystack_data['authorization_url'],
-        "access_code": paystack_data['access_code'],
         "reference": reference
     }
 
@@ -201,10 +195,10 @@ async def paystack_webhook(
     return {"status": "success"}
 
 
-@router.post("/transfer")
+@router.post("/transfer", response_model=schemas.TransferSuccessResponse)
 async def transfer_funds(
     req: TransferRequest,
-    current_user: models.User = Depends(UnifiedAuth(required_permission="write")),
+    current_user: models.User = Depends(UnifiedAuth(required_permission="transfer")),
     db: Session = Depends(get_db)
 ):
     """
@@ -237,7 +231,7 @@ async def transfer_funds(
 
         # 4. Find Recipient (No need to lock usually, unless strict accounting required)
         recipient_wallet = db.query(models.Wallet).filter(
-            models.Wallet.wallet_number == req.recipient_wallet_number
+            models.Wallet.wallet_number == req.wallet_number
         ).first()
 
         if not recipient_wallet:
@@ -277,13 +271,7 @@ async def transfer_funds(
 
         return {
             "status": "success",
-            "message": "Transfer successful",
-            "data": {
-                "reference": transfer_ref,
-                "amount": req.amount,
-                "recipient": recipient_wallet.wallet_number,
-                "new_balance": sender_wallet.balance
-            }
+            "message": "Transfer completed"
         }
 
     except HTTPException as he:
@@ -305,3 +293,21 @@ async def list_wallets(
 ):
     wallets = db.query(models.Wallet).filter(models.Wallet.user_id == current_user.id).all()
     return wallets
+
+
+@router.get("/deposit/{reference}/status")
+async def get_deposit_status(
+    reference: str,
+    current_user: models.User = Depends(UnifiedAuth(required_permission="read")),
+    db: Session = Depends(get_db)
+):
+    tx = db.query(models.Transaction)\
+        .join(models.Wallet, models.Transaction.wallet_id == models.Wallet.id)\
+        .filter(
+            models.Transaction.reference == reference,
+            models.Wallet.user_id == current_user.id
+        ).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    status_value = tx.status.value if hasattr(tx.status, "value") else str(tx.status)
+    return {"reference": reference, "status": status_value, "amount": tx.amount}

@@ -1,8 +1,8 @@
 import secrets
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -19,33 +19,33 @@ router = APIRouter(
 # --- Helper: Parse Expiry ---
 def parse_expiry(expiry_str: str) -> datetime:
     """
-    Parses strings like "1D", "30D", "12H" into a future datetime.
-    Default to 30 days if invalid.
+    Accepts only patterns like 1H, 1D, 1M, 1Y and returns a UTC datetime.
     """
-    now = datetime.utcnow()
-    
-    match = re.match(r"(\d+)([DH])", expiry_str.upper())
+    now = datetime.now(timezone.utc)
+    match = re.fullmatch(r"(\d+)([HDMY])", expiry_str.strip().upper())
     if not match:
-        return now + timedelta(days=30) # Default
-        
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="expiry must be one of: <n>H, <n>D, <n>M, <n>Y"
+        )
     value, unit = int(match.group(1)), match.group(2)
-    
-    if unit == 'D':
-        return now + timedelta(days=value)
-    elif unit == 'H':
-        return now + timedelta(hours=value)
-    
-    return now + timedelta(days=30)
+    mapping = {
+        "H": timedelta(hours=value),
+        "D": timedelta(days=value),
+        "M": timedelta(days=30 * value),
+        "Y": timedelta(days=365 * value)
+    }
+    return now + mapping[unit]
 
 # --- Schemas for this file ---
 class CreateKeyRequest(BaseModel):
     name: str # e.g. "Billing Service"
     permissions: list[str] = ["read"]
-    expiry: str = "30D"
+    expiry: str = "1M"
 
 class RolloverRequest(BaseModel):
-    key_id: int
-    expiry: str = "30D"
+    expired_key_id: int
+    expiry: str = "1M"
 
 # --- Endpoints ---
 
@@ -119,18 +119,22 @@ async def rollover_api_key(
     """
     # 1. Fetch the old key
     old_key = db.query(models.ApiKey).filter(
-        models.ApiKey.id == req.key_id,
+        models.ApiKey.id == req.expired_key_id,
         models.ApiKey.user_id == current_user.id
     ).first()
 
     if not old_key:
         raise HTTPException(status_code=404, detail="Key not found")
 
-    # 2. Validate Expiry logic (Optional: Allow rolling over active keys too?)
-    # Prompt says: "Fetch by expired... Validate expires_at < now"
-    # We will allow rolling over ANY key, but specifically checking expiry if strict.
-    # if old_key.expires_at > datetime.utcnow():
-    #     pass # Logic choice: Can we rollover a valid key? Yes, usually for security.
+    if not old_key.expires_at:
+        raise HTTPException(status_code=400, detail="Key has no expiry; cannot rollover")
+    
+    now = datetime.now(timezone.utc)
+    old_expiry = old_key.expires_at if old_key.expires_at.tzinfo else old_key.expires_at.replace(tzinfo=timezone.utc)
+    
+    # Enforce: The expired key must truly be expired.
+    if old_expiry > now:
+        raise HTTPException(status_code=400, detail="Key is not expired yet")
 
     # 3. Copy permissions
     perms_to_copy = old_key.permissions
