@@ -141,6 +141,7 @@ async def auth_google_callback(request: Request, db: Session = Depends(get_db)):
 
         except Exception as e:
             db.rollback()
+            print(f"Error creating user/wallet: {str(e)}") # Added logging
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create user account."

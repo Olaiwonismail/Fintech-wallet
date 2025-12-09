@@ -1,5 +1,6 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.cors import CORSMiddleware
 
@@ -18,6 +19,16 @@ app = FastAPI(
     description="API for wallet management and Google OAuth authentication",
     version="1.0.0"
 )
+
+# --- Global Exception Handler ---
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    # In production, replace print with a proper logger (e.g., logging.error)
+    print(f"Global Unhandled Error: {exc}")
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An internal server error occurred. Please try again later."}
+    )
 
 # 3. Add Session Middleware (CRITICAL for Google OAuth)
 # Authlib needs this to store a temporary "state" token during the redirect

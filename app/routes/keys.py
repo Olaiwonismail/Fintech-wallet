@@ -91,9 +91,13 @@ async def create_api_key(
         is_active=True
     )
     
-    db.add(new_key)
-    db.commit()
-    db.refresh(new_key)
+    try:
+        db.add(new_key)
+        db.commit()
+        db.refresh(new_key)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error while creating API key")
 
     # 6. Return the RAW key to the user (only time they see it)
     return schemas.ApiKeySecretResponse(
@@ -156,9 +160,13 @@ async def rollover_api_key(
     # 5. Invalidate Old Key
     old_key.is_active = False
 
-    db.add(new_key)
-    db.commit()
-    db.refresh(new_key)
+    try:
+        db.add(new_key)
+        db.commit()
+        db.refresh(new_key)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error during key rollover")
 
     return schemas.ApiKeySecretResponse(
         id=new_key.id,

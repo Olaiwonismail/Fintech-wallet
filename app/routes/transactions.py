@@ -93,8 +93,13 @@ async def initialize_deposit(
         status=models.TransactionStatus.PENDING
     )
     
-    db.add(new_transaction)
-    db.commit()
+    try:
+        db.add(new_transaction)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        # Log error here
+        raise HTTPException(status_code=500, detail="Failed to record transaction in database")
 
     return {
         "authorization_url": paystack_data['authorization_url'],
