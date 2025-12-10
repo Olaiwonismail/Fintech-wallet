@@ -90,7 +90,7 @@ async def auth_google_callback(request: Request, db: Session = Depends(get_db)):
     """
     try:
         redirect_uri = str(request.url_for('auth_google_callback'))
-        token = await oauth.google.authorize_access_token(request)
+        token = await oauth.google.authorize_access_token(request,redirect_uri = redirect_uri)
     except OAuthError as e:
         if getattr(e, "error", "") == "mismatching_state":
             raise HTTPException(
