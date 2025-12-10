@@ -77,7 +77,7 @@ async def login_google(request: Request):
     redirect_uri =str(request.url_for('auth_google_callback'))
     data = await oauth.google.authorize_redirect(request, redirect_uri)
     print(f"Redirecting to: {data.headers['location']}")
-    return data.headers['location']
+    return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/google/callback")
 async def auth_google_callback(request: Request, db: Session = Depends(get_db)):
@@ -90,7 +90,7 @@ async def auth_google_callback(request: Request, db: Session = Depends(get_db)):
     """
     try:
         redirect_uri = str(request.url_for('auth_google_callback'))
-        token = await oauth.google.authorize_access_token(request,redirect_uri = redirect_uri)
+        token = await oauth.google.authorize_access_token(request)
     except OAuthError as e:
         if getattr(e, "error", "") == "mismatching_state":
             raise HTTPException(
