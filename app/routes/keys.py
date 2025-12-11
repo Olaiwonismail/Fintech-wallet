@@ -111,6 +111,19 @@ async def create_api_key(
         secret_key=raw_key_secret # The field from schema
     )
 
+#get all api keys for current user
+@router.get("/", response_model=list[schemas.ApiKeyResponse])
+async def get_api_keys(
+    current_user: models.User = Depends(get_current_user_jwt),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve all API keys for the current user.
+    """
+    keys = db.query(models.ApiKey).filter(
+        models.ApiKey.user_id == current_user.id
+    ).all()
+    return keys
 
 @router.post("/rollover", response_model=schemas.ApiKeySecretResponse)
 async def rollover_api_key(
